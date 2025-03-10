@@ -229,16 +229,33 @@
 
     <!-- Main Application Script -->
     <script>
+
     // Initialize Leaflet map
     const map = L.map('map').setView([47, -117], 13); // Default center (example location)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map); // Using OSM; replace with satellite imagery if desired
+  
+    var terrain = L.tileLayer("https://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}", {
+        maxZoom: 20,
+        subdomains: ["mt0", "mt1", "mt2", "mt3"]
+    }).addTo(map);
+
+    var satellite = L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
+        maxZoom: 20,
+        subdomains: ["mt0", "mt1", "mt2", "mt3"]
+    });
+
+    var baseMaps = {
+            "Satellite": satellite,
+            "Terrain": terrain,
+    };
+    
+    L.control.layers(baseMaps).addTo(map);
+
+    
 
     // Set up drawing layer
     const drawnItems = new L.FeatureGroup().addTo(map);
     const drawControl = new L.Control.Draw({
-        draw: { polyline: true, polygon: false, circle: false, marker: false, rectangle: false },
+        draw: null,
         edit: { featureGroup: drawnItems }
     });
     map.addControl(drawControl);
