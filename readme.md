@@ -48,3 +48,9 @@ By using Road Analyzer, you agree that the creators and contributors shall not b
 ## Feedback
 
 Please contact rogerlew@uidaho.edu or use the [GitHub Issue Tracker](https://github.com/rogerlew/road-analyzer/)
+
+## Dev
+
+1. git clone https://github.com/rogerlew/road-analyzer
+2. code .
+3. serve `python -m http.server 8000`
