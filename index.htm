@@ -45,11 +45,11 @@
   <!-- Results Modal -->
   <!-- Use 'modal-xl' to make it wider -->
   <div class="modal fade" id="resultsModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog modal-xl" role="document"> 
+    <div class="modal-dialog modal-dialog-scrollable modal-xl" role="document"> 
       <div class="modal-content">
         <div class="modal-header">
           <!-- Display UTM zone in the title -->
-          <h5 class="modal-title">Analysis Results (<span id="utmZoneDisplay"></span>)</h5>
+          <h5 class="modal-title">Road Assessment (<span id="utmZoneDisplay"></span>)</h5>
           <button type="button" class="close" data-dismiss="modal">×</button>
         </div>
         <div class="modal-body">
@@ -70,8 +70,12 @@
             </thead>
             <tbody id="resultsTableBody"></tbody>
           </table>
+          <div><i>Radius of Curvature is bounded to 9,999 ft</i><br></div>
           <button class="btn btn-info" onclick="exportTableToCSV()">Export CSV</button>
           <button class="btn btn-info" onclick="downloadGeoJSON()">Export GeoJSON</button>
+          <!-- Container for the Plotly subplots -->
+          <div id="plotDiv" style="width: 100%; height: 600px;"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -82,6 +86,7 @@
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
   <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
   
   <!-- utmconv.js Library (abbreviated example) -->
   <script>
@@ -159,6 +164,31 @@
     edit: { featureGroup: drawnItems }
   });
   map.addControl(drawControl);
+
+  
+  // Handle deletion events
+  map.on('draw:deleted', (e) => {
+    // Show "Draw Path" button, hide "Run Analysis" button
+    document.getElementById('drawPath').style.display = 'inline';
+    document.getElementById('runAnalysis').style.display = 'none';
+  });
+
+  // Define the disclaimer control
+  const DisclaimerControl = L.Control.extend({
+      options: { position: 'bottomright' },
+      onAdd: function () {
+      const container = L.DomUtil.create('div', 'disclaimer-control');
+      container.innerHTML = `
+          <strong>Disclaimer:</strong>
+          <br/>
+          All data and calculations are approximate and are provided “as is” for informational purposes only. Use at your own risk.
+      `;
+      return container;
+      }
+  });
+
+  // Add the disclaimer to the map
+  map.addControl(new DisclaimerControl());
 
   let pathLayer = null;
   let utmZone = null; // store the chosen UTM zone
@@ -310,9 +340,11 @@
 
     // If area is nearly zero => radius is huge or undefined
     if (area < 1e-9) return null; // or "N/A"
-
     // Radius = (AB * BC * CA) / (4 * area)
-    const radius = (AB * BC * CA) / (4 * area);
+    let radius = (AB * BC * CA) / (4 * area);
+    if (radius > 9999) {
+      radius = 9999;
+    }
     return radius;
   }
 
@@ -340,8 +372,87 @@
       `;
       tableBody.appendChild(row);
     });
+
+    openPlotModal(results);
+
     // Show results
     $('#resultsModal').modal('show');
+  }
+
+  function openPlotModal() {
+    // Extract data from the global results
+    const xData = results.map(r => r.cumulative);
+    const yGrade = results.map(r => r.grade);
+    const yRadius = results.map(r => r.radius);
+
+    // Trace for Grade subplot
+    const traceGrade = {
+      x: xData,
+      y: yGrade,
+      mode: 'lines',
+      name: 'Grade (%)'
+    };
+
+    // Trace for Radius subplot (placed in second row of subplots)
+    const traceRadius = {
+      x: xData,
+      y: yRadius,
+      mode: 'lines',
+      name: 'Radius of Curvature (ft)',
+      xaxis: 'x2',
+      yaxis: 'y2'
+    };
+
+    const data = [traceGrade, traceRadius];
+
+    // Define 2-row subplot layout
+    const layout = {
+      grid: { rows: 2, columns: 1, pattern: 'independent' },
+      
+      // Top subplot: Grade vs. Cumulative Distance
+      xaxis: {
+        title: 'Cumulative Distance (ft)',
+        anchor: 'y'
+      },
+      yaxis: {
+        title: 'Grade (%)',
+        range: [-20, 20],   // Force y-range -20 to 20
+        anchor: 'x'
+      },
+
+      // Bottom subplot: Radius vs. Cumulative Distance
+      xaxis2: {
+        title: 'Cumulative Distance (ft)',
+        anchor: 'y2'
+      },
+      yaxis2: {
+        title: 'Radius of Curvature (ft)',
+        range: [0, 10000],
+        anchor: 'x2'
+      },
+
+      // Faint dark gray horizontal line at y=0 in top subplot
+      shapes: [
+        {
+          type: 'line',
+          xref: 'paper',   // use the entire width
+          yref: 'y',       // refer to top subplot's y-axis
+          x0: 0,
+          x1: 1,
+          y0: 0,
+          y1: 0,
+          line: {
+            color: 'darkgray',
+            width: 1,
+            dash: 'dot'
+          }
+        }
+      ]
+    };
+
+    // Draw the plot
+    Plotly.newPlot('plotDiv', data, layout);
+
   }
 
   function downloadCSV(csv, filename) {
