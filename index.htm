@@ -53,23 +53,25 @@
           <button type="button" class="close" data-dismiss="modal">×</button>
         </div>
         <div class="modal-body">
-          <table class="table table-striped">
+          <table id="resultsTable" class="table table-striped">
             <thead>
               <tr>
                 <th>Point ID</th>
                 <th>Lng</th>
                 <th>Lat</th>
-                <th>X (ft)</th>
-                <th>Y (ft)</th>
+                <th>Easting(ft)</th>
+                <th>Northing (ft)</th>
                 <th>Elevation (ft)</th>
                 <th>Distance (ft)</th>
                 <th>Cumulative Distance (ft)</th>
                 <th>Grade (%)</th>
-                <th>Turn Angle (°)</th>
+                <th>Radius of Curvature (ft)</th>
               </tr>
             </thead>
-            <tbody id="resultsTable"></tbody>
+            <tbody id="resultsTableBody"></tbody>
           </table>
+          <button class="btn btn-info" onclick="exportTableToCSV()">Export CSV</button>
+          <button class="btn btn-info" onclick="downloadGeoJSON()">Export GeoJSON</button>
         </div>
       </div>
     </div>
@@ -172,8 +174,10 @@
 
   // Start drawing when user clicks "Draw Path"
   document.getElementById('drawPath').addEventListener('click', () => {
-    new L.Draw.Polyline(map).enable();
+    new L.Draw.Polyline(map, { shapeOptions: { color: 'red' } }).enable();
   });
+
+  var results = null;
 
   // Run analysis
   document.getElementById('runAnalysis').addEventListener('click', async () => {
@@ -186,7 +190,7 @@
       const latlngs = pathLayer.getLatLngs();
       const points = await fetchElevations(latlngs);
       const projectedPoints = projectCoordinates(points);
-      const results = calculateMetrics(projectedPoints);
+      results = calculateMetrics(projectedPoints);
       displayResults(results);
     } catch (err) {
       console.error(err);
@@ -244,7 +248,7 @@
       const pt = points[i];
       let distance = 0;       // distance from previous to current
       let grade = null;       // slope from current to next
-      let angle = null;       // turn angle at current
+      let radius = null;      // turn radius at current
       if (i === 0) {
         // first point => distance=0
         distance = 0;
@@ -265,7 +269,7 @@
       if (i > 0 && i < points.length - 1) {
         const prev = points[i - 1];
         const next = points[i + 1];
-        angle = calculateTurnAngle(prev, pt, next);
+        radius = calculateCurvatureRadius(prev, pt, next);
       }
 
       results.push({ 
@@ -273,32 +277,52 @@
         distance, 
         cumulative, 
         grade, 
-        angle 
+        radius 
       });
     }
     return results;
   }
+  
+  function distance2D(A, B) {
+    const dx = B.x - A.x;
+    const dy = B.y - A.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
-  function calculateTurnAngle(A, B, C) {
-    const AB = { x: B.x - A.x, y: B.y - A.y };
-    const BC = { x: C.x - B.x, y: C.y - B.y };
-    const dot  = AB.x * BC.x + AB.y * BC.y;
-    const magAB = Math.sqrt(AB.x * AB.x + AB.y * AB.y);
-    const magBC = Math.sqrt(BC.x * BC.x + BC.y * BC.y);
-    const cosTheta = dot / (magAB * magBC);
-    // clamp cosTheta to [-1, 1] to avoid floating precision errors
-    const clamped = Math.min(Math.max(cosTheta, -1), 1);
-    const angleRad = Math.acos(clamped);
-    return (angleRad * 180) / Math.PI;
+  // Radius of curvature for three points
+  function calculateCurvatureRadius(A, B, C) {
+    // Distances
+    const AB = distance2D(A, B);
+    const BC = distance2D(B, C);
+    const CA = distance2D(C, A);
+
+    // Triangle area using cross product in 2D
+    // area = |(AB x AC)| / 2
+    // We'll compute coordinates relative to A
+    const Ax = A.x, Ay = A.y;
+    const Bx = B.x, By = B.y;
+    const Cx = C.x, Cy = C.y;
+
+    const areaTwice = Math.abs(
+      (Bx - Ax) * (Cy - Ay) - (By - Ay) * (Cx - Ax)
+    );
+    const area = areaTwice / 2;
+
+    // If area is nearly zero => radius is huge or undefined
+    if (area < 1e-9) return null; // or "N/A"
+
+    // Radius = (AB * BC * CA) / (4 * area)
+    const radius = (AB * BC * CA) / (4 * area);
+    return radius;
   }
 
   // Display results in the modal
   function displayResults(results) {
     // Show which UTM zone we used
-    document.getElementById('utmZoneDisplay').textContent = `Zone ${utmZone}`;
+    document.getElementById('utmZoneDisplay').textContent = `UTM Zone ${utmZone}`;
 
     // Populate table
-    const tableBody = document.getElementById('resultsTable');
+    const tableBody = document.getElementById('resultsTableBody');
     tableBody.innerHTML = '';
     results.forEach((res, i) => {
       const row = document.createElement('tr');
@@ -309,16 +333,98 @@
         <td>${res.x.toFixed(2)}</td>
         <td>${res.y.toFixed(2)}</td>
         <td>${res.elevation ? res.elevation.toFixed(2) : 'N/A'}</td>
-        <td>${res.distance.toFixed(2)}</td>
-        <td>${res.cumulative.toFixed(2)}</td>
+        <td>${res.distance.toFixed(0)}</td>
+        <td>${res.cumulative.toFixed(0)}</td>
         <td>${res.grade ? res.grade.toFixed(2) : 'N/A'}</td>
-        <td>${res.angle ? res.angle.toFixed(2) : 'N/A'}</td>
+        <td>${res.radius ? res.radius.toFixed(2) : 'N/A'}</td>
       `;
       tableBody.appendChild(row);
     });
     // Show results
     $('#resultsModal').modal('show');
   }
+
+  function downloadCSV(csv, filename) {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    }
+
+    function exportTableToCSV(filename = 'road-assessment.csv') {
+    const csv = [];
+    const rows = document.querySelectorAll('#resultsTable tr');
+
+    rows.forEach(row => {
+        const rowData = [];
+        const cols = row.querySelectorAll('th, td');
+        cols.forEach(col => {
+        // Escape quotes
+        const data = col.innerText.replace(/"/g, '""');
+        rowData.push(`"${data}"`);
+        });
+        csv.push(rowData.join(','));
+    });
+
+    downloadCSV(csv.join('\n'), filename);
+  }
+
+  function exportTableToGeoJSON() {
+    // Extract header names from the table
+    const headers = Array.from(document.querySelectorAll('#resultsTable thead th'))
+        .map(th => th.innerText.trim());
+    const rows = document.querySelectorAll('#resultsTable tbody tr');
+    const geojson = {
+        type: "FeatureCollection",
+        features: []
+    };
+
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const properties = {};
+        cells.forEach((cell, index) => {
+        let value = cell.innerText.trim();
+        // Attempt numeric conversion if applicable
+        const num = parseFloat(value);
+        if (!isNaN(num) && value !== "") {
+            value = num;
+        }
+        properties[headers[index]] = value;
+        });
+
+        // Assuming Lng and Lat are the 2nd and 3rd columns (indexes 1 and 2)
+        const lng = parseFloat(cells[1].innerText.trim());
+        const lat = parseFloat(cells[2].innerText.trim());
+        const feature = {
+        type: "Feature",
+        geometry: {
+            type: "Point",
+            coordinates: [lng, lat]
+        },
+        properties: properties
+        };
+
+        geojson.features.push(feature);
+    });
+
+    return JSON.stringify(geojson, null, 2);
+    }
+
+    function downloadGeoJSON(filename = 'road-assessment.geojson') {
+        const geojsonData = exportTableToGeoJSON();
+        const blob = new Blob([geojsonData], { type: 'application/json;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
   </script>
 </body>
 </html>
