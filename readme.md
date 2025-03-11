@@ -21,6 +21,11 @@ Live application: [https://rogerlew.github.io/road-analyzer/](https://rogerlew.g
 - Visual representation through interactive plots
 - Export data as CSV or GeoJSON files
 
+## Data and Privacy
+The application queries elevation data in real time from the USGS Elevation Service. 
+
+All processing occurs locally in your browser, so no user data is collected, stored, or transmitted to external servers.
+
 ## How to Use
 1. Open the application in your web browser
 2. Click the "Draw Path" button to begin drawing a road path
@@ -29,6 +34,7 @@ Live application: [https://rogerlew.github.io/road-analyzer/](https://rogerlew.g
 5. Click "Run Analysis" to process the path
 6. View the results table and plots in the modal window
 7. Export the data using the CSV or GeoJSON buttons if needed
+8. Use Trash can to clear path and to start over
 
 ## Technical Details
 Road Analyzer uses:
